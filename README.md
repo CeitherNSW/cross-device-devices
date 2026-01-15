@@ -24,19 +24,25 @@ Start the controller on the device with the keyboard/mouse:
 python -m src.controller --host <client-ip> --port 54242
 ```
 
-Toggle remote mode with the hotkey (default: `<ctrl>+<alt>+f9`).
+Toggle remote mode with the hotkey (default: `<ctrl>+<alt>+q`).
+When remote mode is active, press the same hotkey on the client to switch back.
 
 ### Options
 
-- `--hotkey "<ctrl>+<alt>+f9"`: change toggle hotkey (pynput format)
-- `--suppress-local`: suppress local input while remote mode is active
+Controller:
+- `--hotkey "<ctrl>+<alt>+q"`: change toggle hotkey (pynput format)
+- `--allow-local`: allow local input while remote mode is active (default suppresses)
+- `--verbose`: extra logs
+
+Client:
+- `--toggle-hotkey "<ctrl>+<alt>+q"`: send toggle request to the controller
 - `--verbose`: extra logs
 
 ## Notes
 
 - This is a LAN prototype: no encryption, no authentication.
 - The controller sends relative mouse movement; different screen sizes will feel slightly different.
-- If `--suppress-local` is enabled, local input is blocked only while remote mode is active.
+- Local input is suppressed by default while remote mode is active.
 
 ## Roadmap Ideas
 

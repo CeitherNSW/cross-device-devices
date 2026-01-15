@@ -23,19 +23,25 @@ python -m src.client --bind 0.0.0.0 --port 54242
 python -m src.controller --host <client-ip> --port 54242
 ```
 
-使用快捷键切换远程模式（默认：`<ctrl>+<alt>+f9`）。
+使用快捷键切换远程模式（默认：`<ctrl>+<alt>+q`）。
+远程模式下，可在客户端按相同快捷键切回。
 
 ### 参数
 
-- `--hotkey "<ctrl>+<alt>+f9"`：修改切换快捷键（pynput 格式）
-- `--suppress-local`：远程模式生效时屏蔽本地输入
+主控端：
+- `--hotkey "<ctrl>+<alt>+q"`：修改切换快捷键（pynput 格式）
+- `--allow-local`：允许远程模式下的本地输入（默认会屏蔽）
+- `--verbose`：输出更多日志
+
+客户端：
+- `--toggle-hotkey "<ctrl>+<alt>+q"`：向主控端发送切换请求
 - `--verbose`：输出更多日志
 
 ## 注意事项
 
 - 当前为局域网原型：无加密、无鉴权。
 - 主控端发送相对鼠标位移，屏幕大小不同会有手感差异。
-- 开启 `--suppress-local` 后，仅在远程模式下阻止本地输入。
+- 默认会在远程模式下阻止本地输入。
 
 ## 后续方向
 

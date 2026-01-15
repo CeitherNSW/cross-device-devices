@@ -1,6 +1,17 @@
 import json
 
 DEFAULT_PORT = 54242
+HOTKEY_ALIASES = {
+    "ctrl": "<ctrl>",
+    "control": "<ctrl>",
+    "alt": "<alt>",
+    "option": "<alt>",
+    "shift": "<shift>",
+    "cmd": "<cmd>",
+    "command": "<cmd>",
+    "win": "<cmd>",
+    "super": "<cmd>",
+}
 
 
 def encode_message(message):
@@ -48,3 +59,25 @@ def deserialize_button(payload, button_enum):
     if not name:
         return None
     return getattr(button_enum, name, None)
+
+
+def normalize_hotkey(hotkey):
+    if not hotkey:
+        return hotkey
+    parts = [part.strip() for part in hotkey.split("+") if part.strip()]
+    if not parts:
+        return hotkey
+    normalized = []
+    for part in parts:
+        lower = part.lower()
+        if lower.startswith("<") and lower.endswith(">"):
+            normalized.append(lower)
+            continue
+        if lower in HOTKEY_ALIASES:
+            normalized.append(HOTKEY_ALIASES[lower])
+            continue
+        if lower.startswith("f") and lower[1:].isdigit():
+            normalized.append(f"<{lower}>")
+            continue
+        normalized.append(lower)
+    return "+".join(normalized)

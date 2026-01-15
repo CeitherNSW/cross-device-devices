@@ -1,6 +1,7 @@
 import argparse
 import queue
 import socket
+import sys
 import threading
 import time
 
@@ -8,14 +9,16 @@ from pynput import keyboard, mouse
 
 from src.common import (
     DEFAULT_PORT,
+    decode_message,
     encode_message,
+    normalize_hotkey,
     serialize_button,
     serialize_key,
 )
 
 
 class NetworkSender(threading.Thread):
-    def __init__(self, host, port, verbose):
+    def __init__(self, host, port, verbose, on_message=None, on_disconnect=None):
         super().__init__(daemon=True)
         self.host = host
         self.port = port
@@ -24,6 +27,8 @@ class NetworkSender(threading.Thread):
         self.stop_event = threading.Event()
         self.connected = threading.Event()
         self.socket = None
+        self.on_message = on_message
+        self.on_disconnect = on_disconnect
 
     def log(self, message):
         if self.verbose:
@@ -48,6 +53,29 @@ class NetworkSender(threading.Thread):
             self.log("queue full, dropping event")
             return False
 
+    def _notify_disconnect(self):
+        if self.connected.is_set():
+            self.connected.clear()
+            if self.on_disconnect:
+                self.on_disconnect()
+
+    def _read_loop(self, sock):
+        file = sock.makefile("r", encoding="utf-8")
+        for line in file:
+            if self.stop_event.is_set():
+                break
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                message = decode_message(line)
+            except ValueError:
+                self.log(f"bad message: {line}")
+                continue
+            if self.on_message:
+                self.on_message(message)
+        self._notify_disconnect()
+
     def run(self):
         while not self.stop_event.is_set():
             try:
@@ -57,7 +85,11 @@ class NetworkSender(threading.Thread):
                 self.log(f"connected to {self.host}:{self.port}")
                 hello = {"type": "hello", "role": "controller"}
                 self.socket.sendall(encode_message(hello).encode("utf-8"))
-                while not self.stop_event.is_set():
+                reader = threading.Thread(
+                    target=self._read_loop, args=(self.socket,), daemon=True
+                )
+                reader.start()
+                while not self.stop_event.is_set() and self.connected.is_set():
                     try:
                         message = self.queue.get(timeout=0.25)
                     except queue.Empty:
@@ -67,7 +99,7 @@ class NetworkSender(threading.Thread):
             except OSError as exc:
                 self.log(f"connection error: {exc}")
             finally:
-                self.connected.clear()
+                self._notify_disconnect()
                 if self.socket:
                     try:
                         self.socket.close()
@@ -88,9 +120,18 @@ class InputController:
         self.keyboard_listener = None
         self.mouse_listener = None
 
-    def toggle_active(self):
+    def set_active(self, active, source="local", force=False):
         with self.state_lock:
-            self.active = not self.active
+            if self.active == active:
+                return
+            if (
+                not force
+                and source == "local"
+                and self.active
+                and self.sender.connected.is_set()
+            ):
+                return
+            self.active = active
             self.last_mouse_pos = None
         if self.active:
             self.start_capture()
@@ -100,6 +141,14 @@ class InputController:
             status = "LOCAL"
         self.sender.enqueue({"type": "state", "active": self.active})
         print(f"mode: {status}")
+
+    def toggle_active(self, source="local"):
+        with self.state_lock:
+            target = not self.active
+        self.set_active(target, source=source)
+
+    def force_local(self):
+        self.set_active(False, source="system", force=True)
 
     def start_capture(self):
         if self.keyboard_listener or self.mouse_listener:
@@ -176,14 +225,23 @@ def parse_args():
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument(
         "--hotkey",
-        default="<ctrl>+<alt>+f9",
-        help="Toggle hotkey in pynput format",
+        default="<ctrl>+<alt>+q",
+        help="Toggle hotkey in pynput format (special keys like <tab>)",
     )
-    parser.add_argument(
+    local_group = parser.add_mutually_exclusive_group()
+    local_group.add_argument(
         "--suppress-local",
+        dest="suppress_local",
         action="store_true",
-        help="Suppress local input while remote mode is active",
+        help="Suppress local input while remote mode is active (default)",
     )
+    local_group.add_argument(
+        "--allow-local",
+        dest="suppress_local",
+        action="store_false",
+        help="Allow local input while remote mode is active",
+    )
+    parser.set_defaults(suppress_local=True)
     parser.add_argument("--verbose", action="store_true")
     return parser.parse_args()
 
@@ -191,14 +249,36 @@ def parse_args():
 def main():
     args = parse_args()
     sender = NetworkSender(args.host, args.port, args.verbose)
-    sender.start()
-
     controller = InputController(sender, args.suppress_local)
-    hotkeys = keyboard.GlobalHotKeys({args.hotkey: controller.toggle_active})
+
+    def handle_message(message):
+        msg_type = message.get("type")
+        if msg_type == "toggle":
+            controller.toggle_active(source="remote")
+            return
+        if msg_type == "set_active":
+            active = message.get("active")
+            if isinstance(active, bool):
+                controller.set_active(active, source="remote")
+            return
+        sender.log(f"unknown message: {message}")
+
+    sender.on_message = handle_message
+    sender.on_disconnect = controller.force_local
+    sender.start()
+    hotkey = normalize_hotkey(args.hotkey)
+    try:
+        hotkeys = keyboard.GlobalHotKeys(
+            {hotkey: lambda: controller.toggle_active(source="local")}
+        )
+    except ValueError:
+        print(f"invalid hotkey: {args.hotkey}")
+        print("example: <ctrl>+<alt>+q (function keys must use <...>)")
+        sys.exit(2)
     hotkeys.start()
 
     print("controller running")
-    print(f"toggle hotkey: {args.hotkey}")
+    print(f"toggle hotkey: {hotkey}")
     print("press Ctrl+C to stop")
     try:
         while True:

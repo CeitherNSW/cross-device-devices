@@ -6,6 +6,24 @@ from pynput import keyboard, mouse
 from src.common import DEFAULT_PORT, decode_message, deserialize_button, deserialize_key
 
 
+def get_local_ip():
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip = sock.getsockname()[0]
+            if ip:
+                return ip
+    except OSError:
+        pass
+    try:
+        ip = socket.gethostbyname(socket.gethostname())
+        if ip:
+            return ip
+    except OSError:
+        pass
+    return "127.0.0.1"
+
+
 class InputReceiver:
     def __init__(self, verbose):
         self.verbose = verbose
@@ -97,6 +115,7 @@ def serve(bind, port, receiver):
 def main():
     args = parse_args()
     receiver = InputReceiver(args.verbose)
+    print(f"local ip: {get_local_ip()}")
     serve(args.bind, args.port, receiver)
 
 
